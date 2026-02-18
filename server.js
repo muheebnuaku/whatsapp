@@ -101,6 +101,23 @@ Your responsibilities:
       content: aiReply
     });
 
+
+// Simple lead qualification check
+const conversationText = userConversations[from]
+  .map(msg => msg.content)
+  .join(" ")
+  .toLowerCase();
+
+const hasBudget = conversationText.includes("ghc") || conversationText.includes("budget");
+const hasLocation = conversationText.includes("east") || conversationText.includes("legon");
+const hasTimeline = conversationText.includes("month") || conversationText.includes("week");
+const hasPurchaseType = conversationText.includes("purchase") || conversationText.includes("rent");
+
+if (hasBudget && hasLocation && hasTimeline && hasPurchaseType) {
+  console.log("🔥 Qualified Lead Detected:", from);
+}
+
+
     // 🔹 Send response back to WhatsApp
     await axios.post(
       `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
