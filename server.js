@@ -140,55 +140,24 @@ const structuredLead = JSON.parse(
 );
 
 console.log("📦 Structured Lead:", structuredLead);
-
-
-
-
-
-
-    const hasLocation =
-      conversationText.includes("legon") ||
-      conversationText.includes("accra") ||
-      conversationText.includes("tema");
-    const hasTimeline =
-      conversationText.includes("month") ||
-      conversationText.includes("week");
-    const hasPurchaseType =
-      conversationText.includes("purchase") ||
-      conversationText.includes("rent");
-
     let leadScore = 0;
-    if (hasBudget) leadScore += 25;
-    if (hasLocation) leadScore += 25;
-    if (hasTimeline) leadScore += 25;
-    if (hasPurchaseType) leadScore += 25;
+    if (structuredLead.name) leadScore += 20;
+    if (structuredLead.budget) leadScore += 20;
+    if (structuredLead.location) leadScore += 20;
+    if (structuredLead.type) leadScore += 20;
+    if (structuredLead.timeline) leadScore += 20;
 
-    if (leadScore >= 75) {
+    if (leadScore >= 80) {
       if (!qualifiedLeads[from]) {
         qualifiedLeads[from] = {
           phone: from,
+          ...structuredLead,
           score: leadScore,
-          summary: conversationText,
           timestamp: new Date()
         };
-
         console.log("🔥 QUALIFIED LEAD STORED:", qualifiedLeads[from]);
       }
     }
-
-if (structuredLead.name) leadScore += 20;
-if (structuredLead.budget) leadScore += 20;
-if (structuredLead.location) leadScore += 20;
-if (structuredLead.type) leadScore += 20;
-if (structuredLead.timeline) leadScore += 20;
-
-if (leadScore >= 80) {
-  console.log("🔥 QUALIFIED LEAD:", {
-    phone: from,
-    ...structuredLead,
-    score: leadScore
-  });
-}
 
 
 
