@@ -1,0 +1,129 @@
+[
+  {
+    "id": "ACC-APT-01",
+    "name": "Skyline Residences",
+    "location": "Airport Residential, Accra",
+    "city": "accra",
+    "type": "apartment",
+    "tenure": "purchase",
+    "price": 380000,
+    "rent": null,
+    "rentalFrequency": null,
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "amenities": ["Infinity pool", "Gym", "24/7 security"],
+    "availability": "Immediate",
+    "virtualTour": "https://example.com/virtual/skyline-residences",
+    "images": [
+      "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Luxury 3-bed apartment minutes from Kotoka International Airport.",
+    "status": "active"
+  },
+  {
+    "id": "ACC-TH-04",
+    "name": "Meridian Townhomes",
+    "location": "East Legon, Accra",
+    "city": "accra",
+    "type": "townhouse",
+    "tenure": "purchase",
+    "price": 520000,
+    "rent": null,
+    "rentalFrequency": null,
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "amenities": ["Private garden", "Solar backup", "Two-car garage"],
+    "availability": "30 days",
+    "virtualTour": "https://example.com/virtual/meridian-townhomes",
+    "images": [
+      "https://images.unsplash.com/photo-1501183638710-841dd1904471?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Modern family townhomes near top-rated schools and cafes.",
+    "status": "active"
+  },
+  {
+    "id": "TEM-APT-11",
+    "name": "Atlantic View Apartments",
+    "location": "Community 12, Tema",
+    "city": "tema",
+    "type": "apartment",
+    "tenure": "rent",
+    "price": null,
+    "rent": 2800,
+    "rentalFrequency": "month",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "amenities": ["Ocean view", "Backup power", "Concierge"],
+    "availability": "Immediate",
+    "virtualTour": "https://example.com/virtual/atlantic-view",
+    "images": [
+      "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Fully serviced 2-bed rentals ideal for corporates in Tema harbour zone.",
+    "status": "active"
+  },
+  {
+    "id": "ACC-COM-07",
+    "name": "Osu Creative Lofts",
+    "location": "Osu Oxford Street, Accra",
+    "city": "accra",
+    "type": "commercial",
+    "tenure": "rent",
+    "price": null,
+    "rent": 3500,
+    "rentalFrequency": "month",
+    "bedrooms": null,
+    "bathrooms": 2,
+    "amenities": ["Open-plan", "Meeting pods", "High-speed fiber"],
+    "availability": "Immediate",
+    "virtualTour": "https://example.com/virtual/osu-lofts",
+    "images": [
+      "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Flexible commercial lofts for creative teams with branding-friendly frontage.",
+    "status": "active"
+  },
+  {
+    "id": "ACC-APT-15",
+    "name": "Lakeside Terraces",
+    "location": "Cantonments, Accra",
+    "city": "accra",
+    "type": "apartment",
+    "tenure": "purchase",
+    "price": 450000,
+    "rent": null,
+    "rentalFrequency": null,
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "amenities": ["Lake view", "Smart home", "Residents lounge"],
+    "availability": "60 days",
+    "virtualTour": "https://example.com/virtual/lakeside-terraces",
+    "images": [
+      "https://images.unsplash.com/photo-1499914485622-a88fac536970?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Boutique residences overlooking the Marina Park lagoon.",
+    "status": "active"
+  },
+  {
+    "id": "ACC-APT-21",
+    "name": "East Legon Vista Suites",
+    "location": "East Legon, Accra",
+    "city": "accra",
+    "type": "apartment",
+    "tenure": "rent",
+    "price": null,
+    "rent": 1800,
+    "rentalFrequency": "month",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "amenities": ["24/7 security", "Backup power", "Balcony"],
+    "availability": "Immediate",
+    "virtualTour": "https://example.com/virtual/east-legon-vista",
+    "images": [
+      "https://images.unsplash.com/photo-1499951360447-b19be8fe80f5?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1505691723518-36a5ac3be353?auto=format&fit=crop&w=1200&q=80"
+    ],
+    "description": "Fully furnished rentals a minute from American House, ideal for young professionals.",
+    "status": "active"
+  }
+]

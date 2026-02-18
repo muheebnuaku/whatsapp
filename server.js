@@ -2,6 +2,9 @@ const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const OpenAI = require("openai");
+const leadService = require("./services/leadService");
+const propertyService = require("./services/propertyService");
+const { syncLeadToDynamics } = require("./services/crmClient");
 
 const app = express();
 app.use(bodyParser.json());
@@ -9,7 +12,15 @@ app.use(bodyParser.json());
 const VERIFY_TOKEN = "myverifytoken";
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
 const PORT = process.env.PORT || 3000;
+
+const REQUIRED_ENV_VARS = ["ACCESS_TOKEN", "PHONE_NUMBER_ID", "OPENAI_API_KEY"]; 
+REQUIRED_ENV_VARS.forEach(name => {
+  if (!process.env[name]) {
+    console.warn(`⚠️ Missing ${name} environment variable. Certain features may not function as expected.`);
+  }
+});
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -21,98 +32,47 @@ const userConversations = {};
 // In-memory lead storage (temporary until DB integration)
 const qualifiedLeads = {};
 
-// Lightweight property catalog for conversational flows
-const propertyCatalog = [
-  {
-    id: "ACC-APT-01",
-    name: "Skyline Residences",
-    location: "Airport Residential, Accra",
-    city: "accra",
-    type: "apartment",
-    tenure: "purchase",
-    price: 380000,
-    rent: null,
-    bedrooms: 3,
-    bathrooms: 3,
-    amenities: ["Infinity pool", "Gym", "24/7 security"],
-    availability: "Immediate",
-    virtualTour: "https://example.com/virtual/skyline-residences",
-    image: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80",
-    description: "Luxury 3-bed apartment minutes from Kotoka International Airport."
-  },
-  {
-    id: "ACC-TH-04",
-    name: "Meridian Townhomes",
-    location: "East Legon, Accra",
-    city: "accra",
-    type: "townhouse",
-    tenure: "purchase",
-    price: 520000,
-    rent: null,
-    bedrooms: 4,
-    bathrooms: 4,
-    amenities: ["Private garden", "Solar backup", "Two-car garage"],
-    availability: "30 days",
-    virtualTour: "https://example.com/virtual/meridian-townhomes",
-    image: "https://images.unsplash.com/photo-1501183638710-841dd1904471?auto=format&fit=crop&w=1200&q=80",
-    description: "Modern family townhomes near top-rated schools and cafes."
-  },
-  {
-    id: "TEM-APT-11",
-    name: "Atlantic View Apartments",
-    location: "Community 12, Tema",
-    city: "tema",
-    type: "apartment",
-    tenure: "rent",
-    price: null,
-    rent: 2800,
-    rentalFrequency: "month",
-    bedrooms: 2,
-    bathrooms: 2,
-    amenities: ["Ocean view", "Backup power", "Concierge"],
-    availability: "Immediate",
-    virtualTour: "https://example.com/virtual/atlantic-view",
-    image: "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80",
-    description: "Fully serviced 2-bed rentals ideal for corporates in Tema harbour zone."
-  },
-  {
-    id: "ACC-COM-07",
-    name: "Osu Creative Lofts",
-    location: "Osu Oxford Street, Accra",
-    city: "accra",
-    type: "commercial",
-    tenure: "rent",
-    price: null,
-    rent: 3500,
-    rentalFrequency: "month",
-    bedrooms: null,
-    bathrooms: 2,
-    amenities: ["Open-plan", "Meeting pods", "High-speed fiber"],
-    availability: "Immediate",
-    virtualTour: "https://example.com/virtual/osu-lofts",
-    image: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80",
-    description: "Flexible commercial lofts for creative teams with branding-friendly frontage."
-  },
-  {
-    id: "ACC-APT-15",
-    name: "Lakeside Terraces",
-    location: "Cantonments, Accra",
-    city: "accra",
-    type: "apartment",
-    tenure: "purchase",
-    price: 450000,
-    rent: null,
-    bedrooms: 3,
-    bathrooms: 3,
-    amenities: ["Lake view", "Smart home", "Residents lounge"],
-    availability: "60 days",
-    virtualTour: "https://example.com/virtual/lakeside-terraces",
-    image: "https://images.unsplash.com/photo-1499914485622-a88fac536970?auto=format&fit=crop&w=1200&q=80",
-    description: "Boutique residences overlooking the Marina Park lagoon."
-  }
-];
+function generateLeadId(phone) {
+  const suffix = Math.random().toString(36).substring(2, 8);
+  return `${phone}-${Date.now()}-${suffix}`;
+}
 
-const LOCATION_KEYWORDS = [
+function requireAdminAuth(req, res) {
+  if (!ADMIN_API_TOKEN) {
+    res.status(503).json({ error: "Admin API disabled. Configure ADMIN_API_TOKEN." });
+    return false;
+  }
+
+  const providedToken = req.headers["x-admin-token"];
+  if (providedToken !== ADMIN_API_TOKEN) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+
+  return true;
+}
+
+function normalizeListInput(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map(item => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function toOptionalNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+}
+
+const DEFAULT_LOCATION_KEYWORDS = [
   "airport",
   "accra",
   "tema",
@@ -124,12 +84,13 @@ const LOCATION_KEYWORDS = [
   "community 12"
 ];
 
-const PROPERTY_TYPE_KEYWORDS = {
+const BASE_PROPERTY_TYPE_KEYWORDS = {
   apartment: ["apartment", "flat", "condo"],
   townhouse: ["townhouse", "town home"],
   house: ["house", "home", "villa"],
   commercial: ["commercial", "office", "workspace", "shop"],
-  land: ["land", "plot", "site"]
+  land: ["land", "plot", "site"],
+  studio: ["studio", "bedsit"]
 };
 
 function formatCurrency(value) {
@@ -137,7 +98,33 @@ function formatCurrency(value) {
   return `GHS ${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-function extractPreferences(message = "") {
+function collectLocationKeywords(propertyInventory = []) {
+  const dynamic = new Set(DEFAULT_LOCATION_KEYWORDS);
+  propertyInventory.forEach(property => {
+    property.location
+      ?.split(/[,-]/)
+      .map(segment => segment.trim().toLowerCase())
+      .filter(Boolean)
+      .forEach(token => dynamic.add(token));
+  });
+  return Array.from(dynamic);
+}
+
+function collectPropertyTypeKeywords(propertyInventory = []) {
+  const map = JSON.parse(JSON.stringify(BASE_PROPERTY_TYPE_KEYWORDS));
+  propertyInventory.forEach(property => {
+    const type = property.type?.toLowerCase();
+    if (!type) return;
+    if (!map[type]) {
+      map[type] = [type];
+    } else if (!map[type].includes(type)) {
+      map[type].push(type);
+    }
+  });
+  return map;
+}
+
+function extractPreferences(message = "", propertyInventory = []) {
   const lower = message.toLowerCase();
   const intents = new Set();
 
@@ -153,7 +140,8 @@ function extractPreferences(message = "") {
     "lease",
     "office",
     "commercial",
-    "virtual tour"
+    "virtual tour",
+    "listing"
   ];
 
   if (propertyKeywords.some(keyword => lower.includes(keyword))) {
@@ -181,16 +169,21 @@ function extractPreferences(message = "") {
     intents.add("viewing_request");
   }
 
+  const wantsImage = /(image|photo|picture|show me|send.*photo)/i.test(lower);
+  const urgentRequest = /(urgent|asap|fast|quick|immediately|need this fast)/i.test(lower);
+
+  const locationKeywords = collectLocationKeywords(propertyInventory);
   let location = null;
-  for (const keyword of LOCATION_KEYWORDS) {
+  for (const keyword of locationKeywords) {
     if (lower.includes(keyword)) {
       location = keyword;
       break;
     }
   }
 
+  const propertyTypeKeywords = collectPropertyTypeKeywords(propertyInventory);
   let propertyType = null;
-  for (const [type, aliases] of Object.entries(PROPERTY_TYPE_KEYWORDS)) {
+  for (const [type, aliases] of Object.entries(propertyTypeKeywords)) {
     if (aliases.some(alias => lower.includes(alias))) {
       propertyType = type;
       break;
@@ -213,7 +206,7 @@ function extractPreferences(message = "") {
   if (lower.includes("next month")) timeline = "next month";
   if (lower.includes("next week")) timeline = "next week";
 
-  const escalateRequest = /human|agent|representative|person|staff/i.test(lower);
+  const escalateRequest = /human|agent|representative|person|staff|ceo/i.test(lower);
 
   return {
     intents: Array.from(intents),
@@ -223,16 +216,23 @@ function extractPreferences(message = "") {
     timeline,
     wantsVirtualTour: intents.has("virtual_tour"),
     wantsViewing: intents.has("viewing_request"),
+    wantsImage,
+    urgentRequest,
     escalateRequest
   };
 }
 
-function getPropertyMatches(preferences = {}) {
-  return propertyCatalog.filter(property => {
-    if (preferences.location && !property.location.toLowerCase().includes(preferences.location)) {
+function isPropertyActive(property) {
+  return (property.status || "active").toLowerCase() === "active";
+}
+
+function getPropertyMatches(propertyInventory = [], preferences = {}) {
+  return propertyInventory.filter(property => {
+    if (!isPropertyActive(property)) return false;
+    if (preferences.location && !property.location?.toLowerCase().includes(preferences.location)) {
       return false;
     }
-    if (preferences.propertyType && property.type !== preferences.propertyType) {
+    if (preferences.propertyType && property.type?.toLowerCase() !== preferences.propertyType) {
       return false;
     }
     if (preferences.budgetMax) {
@@ -241,13 +241,19 @@ function getPropertyMatches(preferences = {}) {
         return false;
       }
     }
-    return property.availability !== "Sold";
+    return true;
   });
 }
 
-function buildInventoryContext(preferences = {}) {
-  const potentialMatches = getPropertyMatches(preferences);
-  const featured = (potentialMatches.length ? potentialMatches : propertyCatalog).slice(0, 5);
+function buildInventoryContext(propertyInventory = [], preferences = {}) {
+  const potentialMatches = getPropertyMatches(propertyInventory, preferences);
+  const baseList = propertyInventory.filter(isPropertyActive);
+  const featured = (potentialMatches.length ? potentialMatches : baseList).slice(0, 5);
+
+  if (!featured.length) {
+    return "Current Ghana portfolio is being refreshed. Let the client know you will confirm availability with the MLS team before promising specifics.";
+  }
+
   const snapshot = featured
     .map(property => {
       const headlinePrice =
@@ -303,12 +309,13 @@ async function sendPropertySuggestions({ to, matches = [], preferences = {} }) {
     });
 
     const primaryProperty = shortlist[0];
-    if (primaryProperty?.image) {
+    const primaryImage = primaryProperty?.images?.[0] || primaryProperty?.image;
+    if (primaryImage) {
       await sendWhatsAppMessage({
         to,
         type: "image",
         image: {
-          link: primaryProperty.image,
+          link: primaryImage,
           caption: `${primaryProperty.name} – ${primaryProperty.location}`
         }
       });
@@ -400,9 +407,17 @@ app.post("/webhook", async (req, res) => {
 
     const from = message.from;
     const text = message.text?.body;
-    const preferences = extractPreferences(text || "");
 
     if (!text) return res.sendStatus(200);
+
+    let propertyInventory = [];
+    try {
+      propertyInventory = await propertyService.listProperties({ status: "active" });
+    } catch (propertyError) {
+      console.log("Property inventory load error:", propertyError.message);
+    }
+
+    const preferences = extractPreferences(text || "", propertyInventory);
 
     console.log("User said:", text);
     console.log("Detected preferences:", preferences);
@@ -439,7 +454,7 @@ Guidelines:
     });
 
     // Call OpenAI with full conversation memory + inventory context
-    const inventoryContext = buildInventoryContext(preferences);
+    const inventoryContext = buildInventoryContext(propertyInventory, preferences);
     const messagesForOpenAI = [...userConversations[from]];
     messagesForOpenAI.splice(1, 0, {
       role: "system",
@@ -463,10 +478,11 @@ Guidelines:
     // Lead Detection & Scoring
     // -------------------------
 
-    const conversationText = userConversations[from]
+    const conversationHistory = userConversations[from]
       .map(msg => msg.content)
-      .join(" ")
-      .toLowerCase();
+      .join(" ");
+
+    const conversationText = conversationHistory.toLowerCase();
 
 // -------------------------
 // Structured Lead Extraction
@@ -520,14 +536,43 @@ if (!structuredLead.timeline && preferences.timeline) {
     if (structuredLead.timeline) leadScore += 20;
 
     if (leadScore >= 80) {
-      if (!qualifiedLeads[from]) {
-        qualifiedLeads[from] = {
-          phone: from,
-          ...structuredLead,
-          score: leadScore,
-          timestamp: new Date()
-        };
-        console.log("🔥 QUALIFIED LEAD STORED:", qualifiedLeads[from]);
+      const timestamp = new Date().toISOString();
+      const leadRecord = {
+        id: generateLeadId(from),
+        phone: from,
+        details: structuredLead,
+        score: leadScore,
+        summary: conversationHistory,
+        source: "whatsapp",
+        status: "pending_sync",
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+
+      qualifiedLeads[from] = leadRecord;
+      console.log("🔥 QUALIFIED LEAD (pending persistence):", leadRecord);
+
+      let leadPersisted = false;
+      try {
+        await leadService.addLead(leadRecord);
+        leadPersisted = true;
+        console.log("✅ Lead persisted to datastore", leadRecord.id);
+      } catch (storageError) {
+        console.log("Lead persistence error:", storageError.message);
+      }
+
+      try {
+        await syncLeadToDynamics(leadRecord);
+        if (leadPersisted) {
+          await leadService.updateLeadStatus(leadRecord.id, "synced");
+        }
+      } catch (crmError) {
+        console.log("CRM sync error:", crmError.response?.data || crmError.message);
+        if (leadPersisted) {
+          await leadService.updateLeadStatus(leadRecord.id, "sync_failed", {
+            lastSyncError: crmError.message
+          });
+        }
       }
     }
 
@@ -542,12 +587,12 @@ if (!structuredLead.timeline && preferences.timeline) {
       text: { body: aiReply }
     });
 
-    const propertyMatches = getPropertyMatches(preferences);
+    const propertyMatches = getPropertyMatches(propertyInventory, preferences);
     const propertyIntentTriggered = [
       "property_search",
       "pricing",
       "availability"
-    ].some(intent => preferences.intents?.includes(intent));
+    ].some(intent => preferences.intents?.includes(intent)) || preferences.wantsImage;
 
     if (propertyIntentTriggered) {
       if (propertyMatches.length) {
@@ -570,6 +615,122 @@ if (!structuredLead.timeline && preferences.timeline) {
   } catch (error) {
     console.log("Webhook error:", error.response?.data || error.message);
     res.sendStatus(200);
+  }
+});
+
+app.get("/admin/properties", async (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+
+  const filters = {
+    status: req.query.status,
+    city: req.query.city,
+    type: req.query.type
+  };
+
+  try {
+    const properties = await propertyService.listProperties(filters);
+    res.json({ data: properties, count: properties.length });
+  } catch (error) {
+    console.log("Admin property fetch error:", error.message);
+    res.status(500).json({ error: "Failed to fetch properties" });
+  }
+});
+
+app.post("/admin/properties", async (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+
+  const payload = req.body || {};
+  const requiredFields = ["name", "location", "city", "type", "tenure"];
+  const missing = requiredFields.filter(field => !payload[field]);
+  if (missing.length) {
+    return res.status(400).json({ error: `Missing fields: ${missing.join(", ")}` });
+  }
+
+  const normalizedPayload = {
+    ...payload,
+    price: toOptionalNumber(payload.price),
+    rent: toOptionalNumber(payload.rent),
+    bedrooms: toOptionalNumber(payload.bedrooms),
+    bathrooms: toOptionalNumber(payload.bathrooms),
+    amenities: normalizeListInput(payload.amenities),
+    images: normalizeListInput(payload.images)
+  };
+
+  try {
+    const property = await propertyService.addProperty(normalizedPayload);
+    res.status(201).json({ data: property });
+  } catch (error) {
+    console.log("Admin property create error:", error.message);
+    res.status(500).json({ error: "Failed to create property" });
+  }
+});
+
+app.patch("/admin/properties/:id", async (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+
+  const payload = {
+    ...req.body,
+    price: req.body?.price !== undefined ? toOptionalNumber(req.body.price) : undefined,
+    rent: req.body?.rent !== undefined ? toOptionalNumber(req.body.rent) : undefined,
+    bedrooms: req.body?.bedrooms !== undefined ? toOptionalNumber(req.body.bedrooms) : undefined,
+    bathrooms: req.body?.bathrooms !== undefined ? toOptionalNumber(req.body.bathrooms) : undefined
+  };
+
+  if (req.body?.amenities !== undefined) {
+    payload.amenities = normalizeListInput(req.body.amenities);
+  }
+
+  if (req.body?.images !== undefined) {
+    payload.images = normalizeListInput(req.body.images);
+  }
+
+  try {
+    const updated = await propertyService.updateProperty(req.params.id, payload);
+    if (!updated) {
+      return res.status(404).json({ error: "Property not found" });
+    }
+    res.json({ data: updated });
+  } catch (error) {
+    console.log("Admin property update error:", error.message);
+    res.status(500).json({ error: "Failed to update property" });
+  }
+});
+
+app.delete("/admin/properties/:id", async (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+
+  try {
+    const archived = await propertyService.archiveProperty(req.params.id);
+    if (!archived) {
+      return res.status(404).json({ error: "Property not found" });
+    }
+    res.json({ data: archived });
+  } catch (error) {
+    console.log("Admin property archive error:", error.message);
+    res.status(500).json({ error: "Failed to archive property" });
+  }
+});
+
+app.get("/admin/leads", async (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+
+  const filters = {
+    status: req.query.status,
+    minScore: req.query.minScore ? Number(req.query.minScore) : undefined,
+    startDate: req.query.startDate,
+    endDate: req.query.endDate
+  };
+
+  if (Number.isNaN(filters.minScore)) {
+    delete filters.minScore;
+  }
+
+  try {
+    const leads = await leadService.listLeads(filters);
+    res.json({ data: leads, count: leads.length });
+  } catch (error) {
+    console.log("Admin lead fetch error:", error.message);
+    res.status(500).json({ error: "Failed to fetch leads" });
   }
 });
 
