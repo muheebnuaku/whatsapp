@@ -15,8 +15,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// 🔹 Simple in-memory conversation storage
+// In-memory conversation storage
 const userConversations = {};
+
+// In-memory lead storage (temporary until DB integration)
+const qualifiedLeads = {};
 
 // --------------------
 // Webhook verification
@@ -44,20 +47,16 @@ app.post("/webhook", async (req, res) => {
     const value = changes?.value;
     const message = value?.messages?.[0];
 
-    if (!message) {
-      return res.sendStatus(200);
-    }
+    if (!message) return res.sendStatus(200);
 
     const from = message.from;
     const text = message.text?.body;
 
-    if (!text) {
-      return res.sendStatus(200);
-    }
+    if (!text) return res.sendStatus(200);
 
     console.log("User said:", text);
 
-    // 🔹 Initialize memory for new user
+    // Initialize conversation memory
     if (!userConversations[from]) {
       userConversations[from] = [
         {
@@ -81,13 +80,13 @@ Your responsibilities:
       ];
     }
 
-    // 🔹 Add user message to conversation
+    // Add user message
     userConversations[from].push({
       role: "user",
       content: text
     });
 
-    // 🔹 Call OpenAI with full memory
+    // Call OpenAI with full conversation memory
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: userConversations[from]
@@ -95,30 +94,110 @@ Your responsibilities:
 
     const aiReply = completion.choices[0].message.content;
 
-    // 🔹 Save assistant reply to memory
+    // Save assistant reply
     userConversations[from].push({
       role: "assistant",
       content: aiReply
     });
 
+    // -------------------------
+    // Lead Detection & Scoring
+    // -------------------------
 
-// Simple lead qualification check
-const conversationText = userConversations[from]
-  .map(msg => msg.content)
-  .join(" ")
-  .toLowerCase();
+    const conversationText = userConversations[from]
+      .map(msg => msg.content)
+      .join(" ")
+      .toLowerCase();
 
-const hasBudget = conversationText.includes("ghc") || conversationText.includes("budget");
-const hasLocation = conversationText.includes("east") || conversationText.includes("legon");
-const hasTimeline = conversationText.includes("month") || conversationText.includes("week");
-const hasPurchaseType = conversationText.includes("purchase") || conversationText.includes("rent");
+// -------------------------
+// Structured Lead Extraction
+// -------------------------
 
-if (hasBudget && hasLocation && hasTimeline && hasPurchaseType) {
-  console.log("🔥 Qualified Lead Detected:", from);
+const structuredExtraction = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: `
+Extract the following details from the conversation.
+Return ONLY valid JSON with these keys:
+name, budget, location, type, timeline.
+
+If a field is missing, return null for that field.
+Do not explain anything.
+`
+    },
+    {
+      role: "user",
+      content: conversationText
+    }
+  ],
+  response_format: { type: "json_object" }
+});
+
+const structuredLead = JSON.parse(
+  structuredExtraction.choices[0].message.content
+);
+
+console.log("📦 Structured Lead:", structuredLead);
+
+
+
+
+
+
+    const hasLocation =
+      conversationText.includes("legon") ||
+      conversationText.includes("accra") ||
+      conversationText.includes("tema");
+    const hasTimeline =
+      conversationText.includes("month") ||
+      conversationText.includes("week");
+    const hasPurchaseType =
+      conversationText.includes("purchase") ||
+      conversationText.includes("rent");
+
+    let leadScore = 0;
+    if (hasBudget) leadScore += 25;
+    if (hasLocation) leadScore += 25;
+    if (hasTimeline) leadScore += 25;
+    if (hasPurchaseType) leadScore += 25;
+
+    if (leadScore >= 75) {
+      if (!qualifiedLeads[from]) {
+        qualifiedLeads[from] = {
+          phone: from,
+          score: leadScore,
+          summary: conversationText,
+          timestamp: new Date()
+        };
+
+        console.log("🔥 QUALIFIED LEAD STORED:", qualifiedLeads[from]);
+      }
+    }
+
+let leadScore = 0;
+
+if (structuredLead.name) leadScore += 20;
+if (structuredLead.budget) leadScore += 20;
+if (structuredLead.location) leadScore += 20;
+if (structuredLead.type) leadScore += 20;
+if (structuredLead.timeline) leadScore += 20;
+
+if (leadScore >= 80) {
+  console.log("🔥 QUALIFIED LEAD:", {
+    phone: from,
+    ...structuredLead,
+    score: leadScore
+  });
 }
 
 
-    // 🔹 Send response back to WhatsApp
+
+    // -------------------------
+    // Send WhatsApp Reply
+    // -------------------------
+
     await axios.post(
       `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}/messages`,
       {
