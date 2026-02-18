@@ -15,20 +15,28 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// 🔹 Simple in-memory conversation storage
+const userConversations = {};
+
+// --------------------
 // Webhook verification
+// --------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode && token === VERIFY_TOKEN) {
+    console.log("Webhook verified");
     return res.status(200).send(challenge);
   } else {
     return res.sendStatus(403);
   }
 });
 
+// --------------------
 // Receive messages
+// --------------------
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -43,35 +51,55 @@ app.post("/webhook", async (req, res) => {
     const from = message.from;
     const text = message.text?.body;
 
+    if (!text) {
+      return res.sendStatus(200);
+    }
+
     console.log("User said:", text);
 
-    // 🔹 Call OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
+    // 🔹 Initialize memory for new user
+    if (!userConversations[from]) {
+      userConversations[from] = [
         {
           role: "system",
           content: `
 You are a professional real estate assistant for Knowledge Innovations.
-You help users find properties.
-Always ask:
-- Budget
-- Location
-- Purchase or Rent
-- Timeline
-Capture their name politely.
-Keep responses short and professional.
-Guide conversation toward booking a viewing.
+
+Your responsibilities:
+- Help users search for properties.
+- Collect and REMEMBER:
+  • Name
+  • Budget
+  • Location
+  • Purchase or Rent
+  • Timeline
+- DO NOT ask again for information already provided.
+- Be short, clear, and professional.
+- Once all details are collected, suggest booking a viewing.
 `
-        },
-        {
-          role: "user",
-          content: text
         }
-      ]
+      ];
+    }
+
+    // 🔹 Add user message to conversation
+    userConversations[from].push({
+      role: "user",
+      content: text
+    });
+
+    // 🔹 Call OpenAI with full memory
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: userConversations[from]
     });
 
     const aiReply = completion.choices[0].message.content;
+
+    // 🔹 Save assistant reply to memory
+    userConversations[from].push({
+      role: "assistant",
+      content: aiReply
+    });
 
     // 🔹 Send response back to WhatsApp
     await axios.post(
@@ -92,9 +120,11 @@ Guide conversation toward booking a viewing.
     res.sendStatus(200);
 
   } catch (error) {
-    console.log("Webhook error:", error.message);
+    console.log("Webhook error:", error.response?.data || error.message);
     res.sendStatus(200);
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
