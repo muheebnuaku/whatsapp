@@ -176,8 +176,6 @@ console.log("📦 Structured Lead:", structuredLead);
       }
     }
 
-let leadScore = 0;
-
 if (structuredLead.name) leadScore += 20;
 if (structuredLead.budget) leadScore += 20;
 if (structuredLead.location) leadScore += 20;
